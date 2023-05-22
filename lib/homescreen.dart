@@ -817,31 +817,6 @@ void onSearch() async {
     ),
   );
 },
-                    // itemBuilder: (context, index) {
-                    //   final userMap = searchResults[index];
-                    //   return ListTile(
-                    //     onTap: () => openChatRoom(userMap),
-                    //     leading: const Icon(
-                    //       Icons.account_box_outlined,
-                    //       color: Colors.black,
-                    //     ),
-                    //     title: Text(
-                    //       userMap['name'],
-                    //       style: const TextStyle(
-                    //         color: Colors.black,
-                    //         fontSize: 20,
-                    //         fontWeight: FontWeight.bold,
-                    //       ),
-                    //     ),
-                    //     subtitle: Text(
-                    //       userMap['email'],
-                    //     ),
-                    //     trailing: const Icon(
-                    //       Icons.chat,
-                    //       color: Colors.black,
-                    //     ),
-                    //   );
-                    // },
                   ),
                 ),
               ],
