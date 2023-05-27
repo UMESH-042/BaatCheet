@@ -29,86 +29,69 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   final TextEditingController _messageController = TextEditingController();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final StreamController<bool> _typingIndicatorController =
-      StreamController<bool>.broadcast();
   StreamSubscription<DocumentSnapshot>? _chatroomSubscription;
+  String? repliedMessage;
 
   @override
   void initState() {
     super.initState();
-    _startTypingIndicatorListener();
   }
 
   @override
   void dispose() {
-    _typingIndicatorController.close();
     _chatroomSubscription?.cancel();
     super.dispose();
   }
 
-  Future<void> _startTypingIndicatorListener() async {
-    _chatroomSubscription = _firestore
-        .collection('chatroom')
-        .doc(widget.chatRoomId)
-        .snapshots()
-        .listen((DocumentSnapshot snapshot) {
-      final isTyping = snapshot.get('isTyping') as bool? ?? false;
-      _typingIndicatorController.add(isTyping);
-    });
-  }
-
-  Future<void> _sendTypingStatus(bool isTyping) async {
-    await _firestore
-        .collection('chatroom')
-        .doc(widget.chatRoomId)
-        .update({'isTyping': isTyping});
-  }
-
-  Future<String?> uploadImage(File imageFile) async {
-    String filename = Uuid().v1();
-    var ref =
-        FirebaseStorage.instance.ref().child('images').child("$filename.jpg");
-
-    var uploadTask = ref.putFile(imageFile);
-    var snapshot = await uploadTask.whenComplete(() {});
-    String imageUrl = await snapshot.ref.getDownloadURL();
-
-    return imageUrl;
-  }
-
-  Future getImages() async {
-    ImagePicker _picker = ImagePicker();
-    await _picker
-        .pickImage(source: ImageSource.gallery)
-        .then((XFile? pickedFile) async {
-      if (pickedFile != null) {
-        File imageFile = File(pickedFile.path);
-        String? imageUrl = await uploadImage(imageFile);
-        onSendMessage('', imageUrl);
-      }
-    });
-  }
-
   void onSendMessage(String message, [String? imageUrl]) async {
     if (message.isNotEmpty || imageUrl != null) {
-      Map<String, dynamic> messageData = {
-        'sendBy': _auth.currentUser?.displayName,
-        'message': message,
-        'imageUrl': imageUrl,
-        'time': FieldValue.serverTimestamp(),
-      };
+      try {
+        Map<String, dynamic> messageData = {
+          'sendBy': _auth.currentUser?.displayName,
+          'message': message,
+          'imageUrl': imageUrl,
+          'time': FieldValue.serverTimestamp(),
+          'repliedMessage': repliedMessage,
+        };
 
-      await _firestore
-          .collection('chatroom')
-          .doc(widget.chatRoomId)
-          .collection('chats')
-          .add(messageData);
+        await _firestore
+            .collection('chatroom')
+            .doc(widget.chatRoomId)
+            .collection('chats')
+            .add(messageData);
 
-      _messageController.clear();
+        _messageController.clear();
+        setState(() {
+          repliedMessage = null;
+        });
+      } catch (e) {
+        print('Error sending message: $e');
+      }
     } else {
       print('Enter some Text');
     }
   }
+
+  // void replyToMessage(String message) {
+  //   setState(() {
+  //     repliedMessage = message;
+  //   });
+  //   _messageController.text = 'Reply to: $message';
+  //   _messageController.selection = TextSelection.fromPosition(
+  //       TextPosition(offset: _messageController.text.length));
+  // }
+  void replyToMessage(String message) {
+  setState(() {
+    repliedMessage = message;
+  });
+  _messageController.text = 'Reply to: $message';
+  _messageController.selection = TextSelection.fromPosition(
+    TextPosition(offset: _messageController.text.length),
+  );
+
+  // Clear the message field
+  _messageController.clear();
+}
 
   @override
   Widget build(BuildContext context) {
@@ -164,15 +147,65 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             messages[index].data() as Map<String, dynamic>;
                         final isCurrentUser =
                             message['sendBy'] == _auth.currentUser?.displayName;
-                        // final timestamp = message['time'] as Timestamp;
                         final timestamp =
                             (message['time'] as Timestamp?)?.toDate() ??
                                 DateTime.now();
 
-                        return MessageBubble(
-                          message: message['message'],
-                          isCurrentUser: isCurrentUser,
-                          timestamp: timestamp,
+                        return Dismissible(
+                          key: UniqueKey(),
+                          direction: isCurrentUser
+                              ? DismissDirection.endToStart
+                              : DismissDirection.startToEnd,
+                          background: Container(
+                            color: Colors.red,
+                            alignment: Alignment.centerLeft,
+                            padding: EdgeInsets.only(left: 16),
+                            child: Icon(
+                              isCurrentUser
+                                  ? Icons.delete_forever
+                                  : Icons.reply,
+                              color: Colors.white,
+                            ),
+                          ),
+                          secondaryBackground: Container(
+                            color: isCurrentUser
+                                ? Colors.red
+                                : Colors.blue.withOpacity(0.5),
+                            alignment: isCurrentUser
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            padding: EdgeInsets.only(right: 16),
+                            child: Icon(
+                              isCurrentUser
+                                  ? Icons.delete_forever
+                                  : Icons.reply,
+                              color: Colors.white,
+                            ),
+                          ),
+                          onDismissed: (direction) {
+                            if (direction == DismissDirection.endToStart) {
+                              // Delete message
+                              _firestore
+                                  .collection('chatroom')
+                                  .doc(widget.chatRoomId)
+                                  .collection('chats')
+                                  .doc(messages[index].id)
+                                  .delete();
+                            } else if (direction ==
+                                DismissDirection.startToEnd) {
+                              // Reply to message
+                              replyToMessage(message['message']);
+                            }
+                          },
+                          child: MessageBubble(
+                            message: message['message'],
+                            isCurrentUser: isCurrentUser,
+                            timestamp: timestamp,
+                            onReply: () {
+                              replyToMessage(message['message']);
+                            },
+                            repliedMessage: message['repliedMessage'],
+                          ),
                         );
                       },
                     );
@@ -188,7 +221,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 },
               ),
             ),
-       
             Container(
               padding: EdgeInsets.all(16),
               child: Row(
@@ -199,22 +231,75 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         color: Colors.grey[200],
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          IconButton(
-                            onPressed: getImages,
-                            icon: Icon(Icons.photo),
-                          ),
-                          Expanded(
-                            child: TextField(
-                              controller: _messageController,
-                              decoration: InputDecoration(
-                                hintText: 'Type a message...',
-                                border: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 16),
+                          if (repliedMessage != null) ...[
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 16,
+                              ),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  left: BorderSide(
+                                    width: 4,
+                                    color: Colors.green,
+                                  ),
+                                ),
+                              ),
+                              child: Text(
+                                'Reply to:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
                               ),
                             ),
+                            SizedBox(height: 4),
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 16,
+                              ),
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  left: BorderSide(
+                                    width: 4,
+                                    color: Colors.green,
+                                  ),
+                                ),
+                              ),
+                              child: Text(
+                                repliedMessage!,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                          ],
+                          Row(
+                            children: [
+                              IconButton(
+                                onPressed: () {},
+                                icon: Icon(Icons.photo),
+                              ),
+                              Expanded(
+                                child: TextField(
+                                  controller: _messageController,
+                                  decoration: InputDecoration(
+                                    hintText: 'Type a message...',
+                                    border: InputBorder.none,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -251,11 +336,15 @@ class MessageBubble extends StatelessWidget {
   final String message;
   final bool isCurrentUser;
   final DateTime timestamp;
+  final Function()? onReply;
+  final String? repliedMessage;
 
   const MessageBubble({
     required this.message,
     required this.isCurrentUser,
     required this.timestamp,
+    this.onReply,
+    this.repliedMessage,
   });
 
   @override
@@ -272,6 +361,48 @@ class MessageBubble extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (repliedMessage != null) ...[
+              GestureDetector(
+                onTap: () {
+                  // Scroll to the replied message
+                  Scrollable.ensureVisible(
+                    context,
+                    duration: Duration(milliseconds: 500),
+                    curve: Curves.easeInOut,
+                    alignment: 0.5,
+                  );
+                },
+                child: Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    border: Border.all(
+                      color: Colors.green,
+                      width: 1.0,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Reply to:',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        repliedMessage!,
+                        style: TextStyle(fontSize: 14, color: Colors.black),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(height: 8),
+            ],
             Text(
               message,
               style: TextStyle(
@@ -283,7 +414,8 @@ class MessageBubble extends StatelessWidget {
               '${timestamp.hour}:${timestamp.minute}',
               style: TextStyle(
                   fontSize: 12,
-                  color: isCurrentUser ? Colors.white70 : Colors.black54),
+                  color:
+                      isCurrentUser ? Colors.white70 : Colors.black54),
             ),
           ],
         ),
@@ -291,3 +423,4 @@ class MessageBubble extends StatelessWidget {
     );
   }
 }
+   
