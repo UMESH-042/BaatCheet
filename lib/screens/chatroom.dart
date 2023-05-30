@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -7,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
+
 
 class ChatRoomScreen extends StatefulWidget {
   final String chatRoomId;
@@ -32,6 +33,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   StreamSubscription<DocumentSnapshot>? _chatroomSubscription;
   String? repliedMessage;
 
+final FocusNode _messageFocusNode = FocusNode();
   @override
   void initState() {
     super.initState();
@@ -72,26 +74,23 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     }
   }
 
-  // void replyToMessage(String message) {
-  //   setState(() {
-  //     repliedMessage = message;
-  //   });
-  //   _messageController.text = 'Reply to: $message';
-  //   _messageController.selection = TextSelection.fromPosition(
-  //       TextPosition(offset: _messageController.text.length));
-  // }
   void replyToMessage(String message) {
-  setState(() {
-    repliedMessage = message;
-  });
-  _messageController.text = 'Reply to: $message';
-  _messageController.selection = TextSelection.fromPosition(
-    TextPosition(offset: _messageController.text.length),
-  );
+    setState(() {
+      repliedMessage = message;
+      // _messageController.text = ''; // Clear the message field
+    });
+    _messageController.text = '';
+    _messageController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _messageController.text.length),
+    );
+  }
 
-  // Clear the message field
-  _messageController.clear();
-}
+  void cancelReply() {
+    setState(() {
+      repliedMessage = null;
+      _messageController.clear();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -197,6 +196,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               replyToMessage(message['message']);
                             }
                           },
+                          
                           child: MessageBubble(
                             message: message['message'],
                             isCurrentUser: isCurrentUser,
@@ -205,6 +205,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                               replyToMessage(message['message']);
                             },
                             repliedMessage: message['repliedMessage'],
+                             currentUserName: _auth.currentUser?.displayName,
+                            otherUserName: isCurrentUser
+                                ? widget.userMap['name']
+                                : null, // Pass the other user's name if it's not the current user
                           ),
                         );
                       },
@@ -248,12 +252,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                                   ),
                                 ),
                               ),
-                              child: Text(
-                                'Reply to:',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      widget.userMap['name'],
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(Icons.clear),
+                                    onPressed: cancelReply,
+                                  ),
+                                ],
                               ),
                             ),
                             SizedBox(height: 4),
@@ -280,27 +294,44 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             ),
                             SizedBox(height: 8),
                           ],
+                  
                           Row(
-                            children: [
-                              IconButton(
-                                onPressed: () {},
-                                icon: Icon(Icons.photo),
-                              ),
-                              Expanded(
-                                child: TextField(
-                                  controller: _messageController,
-                                  decoration: InputDecoration(
-                                    hintText: 'Type a message...',
-                                    border: InputBorder.none,
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 16,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+  children: [
+    IconButton(
+      onPressed: () {},
+      icon: SvgPicture.asset(
+        'assets/emoji.svg',
+        height: 24,
+        width: 24,
+      ),
+    ),
+    Expanded(
+      child: TextField(
+        controller: _messageController,
+     
+       
+        decoration: InputDecoration(
+          hintText: 'Message...',
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+        ),
+      ),
+    ),
+    
+    IconButton(
+      onPressed: () {},
+      icon: Icon(Icons.attach_file),
+    ),
+    IconButton(
+      onPressed: () {},
+      icon: Icon(Icons.camera_alt_sharp),
+    ),
+  ],
+),
+
                         ],
                       ),
                     ),
@@ -338,6 +369,8 @@ class MessageBubble extends StatelessWidget {
   final DateTime timestamp;
   final Function()? onReply;
   final String? repliedMessage;
+  final String? otherUserName; // Added otherUserName property
+   final String? currentUserName;
 
   const MessageBubble({
     required this.message,
@@ -345,6 +378,8 @@ class MessageBubble extends StatelessWidget {
     required this.timestamp,
     this.onReply,
     this.repliedMessage,
+    this.otherUserName, // Added otherUserName parameter
+     required this.currentUserName
   });
 
   @override
@@ -386,10 +421,13 @@ class MessageBubble extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Reply to:',
+                        otherUserName != null
+                            ? otherUserName!
+                            : currentUserName!, // Updated condition
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.green,
+                          // color: Colors.green,
+                          color: otherUserName!=null?Colors.orange:Colors.green,
                         ),
                       ),
                       SizedBox(height: 4),
@@ -414,8 +452,7 @@ class MessageBubble extends StatelessWidget {
               '${timestamp.hour}:${timestamp.minute}',
               style: TextStyle(
                   fontSize: 12,
-                  color:
-                      isCurrentUser ? Colors.white70 : Colors.black54),
+                  color: isCurrentUser ? Colors.white70 : Colors.black54),
             ),
           ],
         ),
@@ -423,4 +460,3 @@ class MessageBubble extends StatelessWidget {
     );
   }
 }
-   
